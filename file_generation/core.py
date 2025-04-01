@@ -5,22 +5,16 @@ from typing import List, Optional
 
 
 class MultiFileGenerationError(Exception):
-    """
-    Raised when any error occurs in file generation or zipping.
-    """
     pass
 
 
 class BaseFileGenerator(ABC):
-    def __init__(self, instance):
+    def __init__(self, instance, output_directory: Optional[str] = None):
         self.instance = instance
+        self.output_directory = output_directory or os.getcwd()
 
     @abstractmethod
     def generate_files_and_return_paths(self) -> List[str]:
-        """
-        Subclasses must generate the required files and return a list of absolute
-        paths. If an error occurs, raise MultiFileGenerationError with details.
-        """
         pass
 
 
@@ -43,8 +37,9 @@ class ZippingService:
 
 
 class MultiFileGenerationService:
-    def __init__(self, generators: List[BaseFileGenerator]):
+    def __init__(self, generators: List[BaseFileGenerator], output_directory: Optional[str] = None):
         self.generators = generators
+        self.output_directory = output_directory or os.getcwd()
 
     def create_zip(self, zip_name: str) -> str:
         if not zip_name:
@@ -58,7 +53,7 @@ class MultiFileGenerationService:
             if not all_generated_paths:
                 raise MultiFileGenerationError("No files were generated. Possibly no documents or templates found.")
 
-            zip_path = os.path.join("/tmp", zip_name)
+            zip_path = os.path.join(self.output_directory, zip_name)
             zipper = ZippingService(output_filename=zip_path, file_paths=all_generated_paths)
             final_zip = zipper.zip()
             if not final_zip:
@@ -66,8 +61,3 @@ class MultiFileGenerationService:
             return final_zip
         except Exception as e:
             raise MultiFileGenerationError(str(e)) from e
-
-
-    # The following methods (_process_static_placeholders, _replace_placeholders, etc.)
-    # remain unchanged as they don't rely on Django.
-    # [Include all the existing methods from the original BaseXlsxGenerator here]

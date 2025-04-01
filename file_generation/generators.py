@@ -10,13 +10,6 @@ import copy
 
 
 class BaseDocxGenerator(BaseFileGenerator):
-    """
-    Generates DOCX files from templates using docxtpl.
-    Subclasses must implement:
-    - get_documents(): Provides template paths and metadata for filenames.
-    - _get_output_filename(): Generates the output filename from document info.
-    """
-
     @abstractmethod
     def get_context(self) -> dict:
         pass
@@ -31,14 +24,11 @@ class BaseDocxGenerator(BaseFileGenerator):
 
     @abstractmethod
     def _get_output_filename(self, doc_info: Dict) -> str:
-        """
-        Generates the output filename based on document info and instance data.
-        """
         pass
 
     def generate_files_and_return_paths(self) -> List[str]:
         documents = self.get_documents()
-        if not documents:
+        if documents is None:
             raise MultiFileGenerationError("No documents found to generate DOCX files.")
 
         rendered_paths = []
@@ -49,14 +39,13 @@ class BaseDocxGenerator(BaseFileGenerator):
 
             full_template_path = self._resolve_template_path(template_path)
             output_filename = self._get_output_filename(doc_info)
-            output_path = os.path.join("/tmp", output_filename)
+            output_path = os.path.join(self.output_directory, output_filename)
             self._render_template(full_template_path, output_path)
             rendered_paths.append(output_path)
 
         return rendered_paths
 
     def _resolve_template_path(self, template_path: str) -> str:
-        """Override this method if custom template path resolution is needed."""
         return template_path
 
     def _render_template(self, template_path: str, output_path: str):
@@ -66,60 +55,56 @@ class BaseDocxGenerator(BaseFileGenerator):
             template.render(context)
             template.save(output_path)
         except Exception as e:
-            raise MultiFileGenerationError(f"Error rendering DOCX template '{template_path}': {e}") from e
+            raise MultiFileGenerationError(
+                f"Error rendering DOCX template '{template_path}': {e}"
+            ) from e
+
 
 class BaseXlsxGenerator(BaseFileGenerator):
-    """
-    Generates XLSX files from templates using openpyxl, supporting context data and loops.
-    Ensures:
-      • Rows below loop sections remain in place
-      • Cell styles are preserved for inserted rows
-      • Loop template rows are removed once processed
-    """
-
     @abstractmethod
     def get_context(self) -> Dict[str, Any]:
-        """Subclasses must provide context data for template rendering"""
         pass
 
     @abstractmethod
-    def get_template_path(self) -> str:
-        """Subclasses must provide absolute path to template file"""
-        pass
-
-    @abstractmethod
-    def _get_output_filename(self) -> str:
-        """Subclasses must define output filename generation logic"""
+    def _get_output_filename(self, workbook_info: Dict) -> str:
         pass
 
     def _resolve_template_path(self, template_path: str) -> str:
-        """Can be overridden for custom path resolution logic"""
         return template_path
 
     def generate_files_and_return_paths(self) -> List[str]:
-        context = self.get_context()
-        template_path = self.get_template_path()
-        full_template_path = self._resolve_template_path(template_path)
+        workbooks = self.get_workbooks()
+        if workbooks is None:
+            raise MultiFileGenerationError("No workbooks found to generate XLSX files.")
 
-        output_filename = self._get_output_filename()
-        output_path = os.path.join("/tmp", output_filename)
+        rendered_paths = []
+        
+        for workbook_info in workbooks:
+            template_path = workbook_info.get('template_path')
+            if not template_path:
+                raise MultiFileGenerationError("Workbook info missing 'template_path'.")
 
-        try:
-            wb = load_workbook(full_template_path)
-            ws = wb.active
+            full_template_path = self._resolve_template_path(template_path)
+            output_filename = self._get_output_filename(workbook_info)
+            output_path = os.path.join(self.output_directory, output_filename)
 
-            self._process_static_placeholders(ws, context)
-            self._process_loops(ws, context)
+            try:
+                context = self.get_context()
+                wb = load_workbook(full_template_path)
+                ws = wb.active
 
-            wb.save(output_path)
-            return [output_path]
-        except Exception as e:
-            raise MultiFileGenerationError(
-                f"XLSX generation failed: {e}"
-            ) from e
+                self._process_static_placeholders(ws, context)
+                self._process_loops(ws, context)
 
-    # All subsequent methods remain unchanged from original implementation
-    # Only Django-specific references were removed from the top-level methods
+                wb.save(output_path)
+                rendered_paths.append(output_path)
+                
+            except Exception as e:
+                raise MultiFileGenerationError(
+                    f"Error processing XLSX template '{template_path}': {e}"
+                ) from e
+
+        return rendered_paths
 
     def _process_static_placeholders(self, worksheet: Worksheet, context: Dict[str, Any]):
         for row in worksheet.iter_rows():
